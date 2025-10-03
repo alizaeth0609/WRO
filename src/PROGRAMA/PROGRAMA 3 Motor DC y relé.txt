@@ -1,0 +1,13 @@
+// ================== PROGRAMA 3: Motor DC con Relé ==================
+int relePin = 8;
+
+void setup() {
+  pinMode(relePin, OUTPUT);
+}
+
+void loop() {
+  digitalWrite(relePin, HIGH); // Enciende motor
+  delay(5000);                 // 5 segundos encendido
+  digitalWrite(relePin, LOW);  // Apaga motor
+  delay(5000);                 // 5 segundos apagado
+}

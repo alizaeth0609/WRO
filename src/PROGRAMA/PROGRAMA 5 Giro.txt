@@ -1,0 +1,125 @@
+GIRO COMPLETO 
+#include <Arduino.h>
+#include <ESP32Servo.h>
+
+// ==== PINES ====
+const int pinRelay = 2;     // Pin del relé que controla el motor DC
+const int servoPin = 14;    // Pin del servomotor
+
+// Pines ultrasónico derecho
+const int trigDer = 12;
+const int echoDer = 13;
+
+// Pines ultrasónico izquierdo
+const int trigIzq = 15;
+const int echoIzq = 4;
+
+// ==== OBJETOS ====
+Servo miServo;
+
+// ==== VARIABLES ====
+long distanciaDer = 0;
+long distanciaIzq = 0;
+const int umbral = 150;   // Distancia en cm para detección de obstáculos
+
+// ==== FUNCIONES ====
+// Medir distancia con ultrasonido
+long medirDistancia(int trig, int echo) {
+  digitalWrite(trig, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trig, LOW);
+
+  long duracion = pulseIn(echo, HIGH, 30000); // timeout 30ms
+  long distancia = duracion * 0.034 / 2;
+  return distancia;
+}
+
+// Encender motor
+void motorOn() {
+  digitalWrite(pinRelay, HIGH);
+}
+
+// Apagar motor
+void motorOff() {
+  digitalWrite(pinRelay, LOW);
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // Configuración relé
+  pinMode(pinRelay, OUTPUT);
+  motorOn();   // Arranca el robot avanzando
+
+  // Configuración servomotor
+  miServo.attach(servoPin);
+  miServo.write(90);  // Posición central
+
+  // Configuración sensores ultrasónicos
+  pinMode(trigDer, OUTPUT);
+  pinMode(echoDer, INPUT);
+
+  pinMode(trigIzq, OUTPUT);
+  pinMode(echoIzq, INPUT);
+
+  Serial.println("Robot iniciado...");
+}
+
+void loop() {
+  // === Medir distancias ===
+  distanciaDer = medirDistancia(trigDer, echoDer);
+  distanciaIzq = medirDistancia(trigIzq, echoIzq);
+
+  Serial.print("Der: ");
+  Serial.print(distanciaDer);
+  Serial.print(" cm  |  Izq: ");
+  Serial.print(distanciaIzq);
+  Serial.println(" cm");
+
+  // === LÓGICA DE MOVIMIENTO ===
+  if (distanciaDer < umbral && distanciaIzq >= umbral) {
+    // Obstáculo a la derecha
+    motorOff();
+    delay(500);
+
+    Serial.println("Girando a la izquierda...");
+    miServo.write(150);   // Gira a la izquierda
+    delay(700);
+
+    motorOn();
+    delay(1000);
+
+    miServo.write(90);   // Volver al centro
+    delay(500);
+  }
+  else if (distanciaIzq < umbral && distanciaDer >= umbral) {
+    // Obstáculo a la izquierda
+    motorOff();
+    delay(500);
+
+    Serial.println("Girando a la derecha...");
+    miServo.write(30);    // Gira a la derecha
+    delay(700);
+
+    motorOn();
+    delay(1000);
+
+    miServo.write(90);   // Volver al centro
+    delay(500);
+  }
+  else if (distanciaIzq < umbral && distanciaDer < umbral) {
+    // Obstáculos en ambos lados
+    Serial.println("Obstáculos en ambos lados, sigo recto...");
+    motorOn();
+    miServo.write(90);   // Servo al centro
+  }
+  else {
+    // Ningún obstáculo
+    motorOn();
+    miServo.write(90);   // Servo al centro
+  }
+
+  delay(200);
+}

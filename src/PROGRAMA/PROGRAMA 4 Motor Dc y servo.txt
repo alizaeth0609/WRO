@@ -1,0 +1,28 @@
+
+// ================== PROGRAMA 4: Motor DC y Servo ==================
+#include <Servo.h>
+
+Servo miServo;
+int servoPin = 9;
+int relePin = 8;
+
+void setup() {
+  miServo.attach(servoPin);
+  pinMode(relePin, OUTPUT);
+}
+
+void loop() {
+  // Mueve servo a la derecha y enciende motor 5s
+  miServo.write(0);
+  digitalWrite(relePin, HIGH);
+  delay(5000);
+
+  // Mueve servo a la izquierda y motor sigue encendido 5s
+  miServo.write(180);
+  delay(5000);
+
+  // Detiene motor
+  digitalWrite(relePin, LOW);
+  miServo.write(90); // servo al centro
+  delay(2000);
+}
