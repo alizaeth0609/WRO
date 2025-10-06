@@ -1,0 +1,108 @@
+#include <Servo.h>
+const int trigDer   = A0, echoDer   = A1;
+const int trigIzq   = A3, echoIzq   = A4;
+const int trigFront = 12, echoFront = 13;
+
+const int motorIn1 = 8;
+const int motorIn2 = 9;
+const int enableMotor = 11;
+
+const int servoPin = 4;
+Servo myServo;
+const int ANG_CENTRO = 90;
+const int ANG_IZQ    = 120;  // izquierda 
+const int ANG_DER    = 60;   // derecha 
+
+enum Estado { NORMAL, EVADIENDO };
+Estado estado = NORMAL;
+
+int angulo = ANG_CENTRO;
+int anguloObjetivo = ANG_CENTRO;
+
+const float Kp = 2.0;               // proporcional para centrado (rápido)
+const float DIST_FRENTE_STOP = 74;  // activar evasión
+const float DIST_FRENTE_OK   = 130; // volver a normal
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(trigDer, OUTPUT);   pinMode(echoDer, INPUT);
+  pinMode(trigIzq, OUTPUT);   pinMode(echoIzq, INPUT);
+  pinMode(trigFront, OUTPUT); pinMode(echoFront, INPUT);
+
+  pinMode(motorIn1, OUTPUT);
+  pinMode(motorIn2, OUTPUT);
+  pinMode(enableMotor, OUTPUT);
+
+  myServo.attach(servoPin);
+  myServo.write(ANG_CENTRO);
+
+  // Motor adelante
+  digitalWrite(motorIn1, HIGH);
+  digitalWrite(motorIn2, LOW);
+  analogWrite(enableMotor, 255); // potencia máxima
+}
+
+void loop() {
+  float dDer   = leerDist(trigDer, echoDer);
+  float dIzq   = leerDist(trigIzq, echoIzq);
+  float dFront = leerDist(trigFront, echoFront);
+
+  switch (estado) {
+    case NORMAL: {
+      float error = dDer - dIzq;
+      float anguloDeseado = ANG_CENTRO + Kp * error;
+      anguloDeseado = constrain(anguloDeseado, ANG_DER, ANG_IZQ);
+
+      angulo = angulo + 0.3 * (anguloDeseado - angulo);
+      myServo.write((int)angulo);
+
+      if (dFront < DIST_FRENTE_STOP) {
+        analogWrite(enableMotor, 0); // parar motor
+        delay(700);                  // esperar un rato
+
+        if (dDer > dIzq) anguloObjetivo = ANG_IZQ; // derecha 
+        else              anguloObjetivo = ANG_DER; // izquierda 
+
+        myServo.write(anguloObjetivo);
+        analogWrite(enableMotor, 255); // avanzar
+        estado = EVADIENDO;
+      }
+    } break;
+
+    case EVADIENDO: {
+      myServo.write(anguloObjetivo);
+      analogWrite(enableMotor, 255);
+
+      if (dFront > DIST_FRENTE_OK) {
+        analogWrite(enableMotor, 0); // parar un instante
+        delay(300);
+
+        myServo.write(ANG_CENTRO);   // volver rápido al centro
+        analogWrite(enableMotor, 255); // reanudar avance
+        estado = NORMAL;
+      }
+    } break;
+  }
+  Serial.print("Estado: ");
+  Serial.print(estado);
+  Serial.print(" | Front: "); Serial.print(dFront);
+  Serial.print(" | Izq: ");   Serial.print(dIzq);
+  Serial.print(" | Der: ");   Serial.print(dDer);
+  Serial.print(" | Servo: "); Serial.println(angulo);
+
+  delay(40);
+}
+float leerDist(int trig, int echo) {
+  digitalWrite(trig, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trig, LOW);
+
+  unsigned long dur = pulseIn(echo, HIGH, 20000);
+  float d = dur * 0.034f / 2.0f;
+
+  if (d <= 0 || d > 400) return 400.0f;
+  return d;
+}

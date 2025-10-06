@@ -1,0 +1,146 @@
+
+#include <Servo.h>
+
+// Pines Sensor de color TCS3200
+const int S0 = 2;
+const int S1 = 3;
+const int S2 = 5;
+const int S3 = 6;
+const int sensorOut = 7;
+
+// Pines del Driver L298N 
+const int motorIn1 = 8;
+const int motorIn2 = 9;
+const int enableMotor = 11;
+
+// Pines del sensor ultrasónico
+const int trigPin = 12;
+const int echoPin = 13;
+
+const int servoPin = 4;
+Servo myServo;
+
+unsigned long rojoFreq = 0;
+unsigned long verdeFreq = 0;
+
+int umbralRojo = 100;
+int umbralVerde = 200;
+
+int centro = 90;
+int derecha = 120;   // +30°
+int izquierda = 60;  // -30°
+
+void setup() {
+  Serial.begin(9600);
+
+  // Sensor de color
+  pinMode(S0, OUTPUT);
+  pinMode(S1, OUTPUT);
+  pinMode(S2, OUTPUT);
+  pinMode(S3, OUTPUT);
+  pinMode(sensorOut, INPUT);
+  digitalWrite(S0, HIGH);
+  digitalWrite(S1, LOW);
+
+  // Sensor ultrasónico
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  // Motor
+  pinMode(motorIn1, OUTPUT);
+  pinMode(motorIn2, OUTPUT);
+  pinMode(enableMotor, OUTPUT);
+
+  // Servo
+  myServo.attach(servoPin);
+  myServo.write(centro);
+
+  Serial.println("Sistema completo listo (Color + Ultrasonico + Servo + Motor)");
+}
+
+void avanzarMotor(int velocidad) {
+  digitalWrite(motorIn1, HIGH);
+  digitalWrite(motorIn2, LOW);
+  analogWrite(enableMotor, velocidad);
+}
+
+void retrocederMotor(int velocidad) {
+  digitalWrite(motorIn1, LOW);
+  digitalWrite(motorIn2, HIGH);
+  analogWrite(enableMotor, velocidad);
+}
+
+void detenerMotor() {
+  digitalWrite(motorIn1, LOW);
+  digitalWrite(motorIn2, LOW);
+  analogWrite(enableMotor, 0);
+}
+
+float medirDistancia() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duracion = pulseIn(echoPin, HIGH, 30000);
+  float distancia = duracion * 0.034 / 2;
+  return distancia;
+}
+
+void loop() {
+  digitalWrite(S2, LOW);
+  digitalWrite(S3, LOW);
+  rojoFreq = pulseIn(sensorOut, LOW);
+
+  digitalWrite(S2, HIGH);
+  digitalWrite(S3, HIGH);
+  verdeFreq = pulseIn(sensorOut, LOW);
+
+  float distancia = medirDistancia();
+
+  bool colorRojo = (rojoFreq < umbralRojo && rojoFreq < verdeFreq * 0.8);
+  bool colorVerde = (verdeFreq < umbralVerde && verdeFreq < rojoFreq * 0.8);
+  bool cerca = (distancia > 0 && distancia < 10);
+
+  if (cerca && (colorRojo || colorVerde)) {
+    Serial.println("Color + objeto cerca detectado → Maniobra completa");
+
+    retrocederMotor(200);
+    delay(1200);
+
+    avanzarMotor(180);
+    delay(300);
+
+    int anguloColor = colorRojo ? derecha : izquierda;
+    myServo.write(anguloColor);
+    delay(300);
+
+    avanzarMotor(200);
+    delay(1200);
+
+    retrocederMotor(200);
+    delay(1200);
+
+    int anguloOpuesto = colorRojo ? izquierda : derecha;
+    myServo.write(anguloOpuesto);
+    delay(300);
+
+    avanzarMotor(1200);
+    delay(1200);
+
+    myServo.write(anguloOpuesto);
+    delay(300);
+
+    avanzarMotor(200);
+    delay(1000);
+    retrocederMotor(200);
+    delay(1200);
+  } 
+  else {
+    // Movimiento normal
+    myServo.write(centro);
+    avanzarMotor(distancia < 20 ? 150 : 200);
+  }
+
+  delay(100);
+}
