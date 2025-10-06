@@ -1,0 +1,217 @@
+#include <Servo.h>
+
+const int S0 = 2;
+const int S1 = 3;
+const int S2 = 5;
+const int S3 = 6;
+const int sensorOut = 7;
+
+const int trigDer   = A0, echoDer   = A1;
+const int trigIzq   = A3, echoIzq   = A4;
+const int trigFront = 12, echoFront = 13;
+
+const int motorIn1 = 8;
+const int motorIn2 = 9;
+const int enableMotor = 11;
+const int servoPin = 4;
+Servo myServo;
+
+const int ANG_CENTRO = 90;
+const int ANG_IZQ    = 120;
+const int ANG_DER    = 60;
+
+float angulo = ANG_CENTRO;
+int anguloObjetivo = ANG_CENTRO;
+
+enum Estado { NORMAL, EVADIENDO, MANIOBRA_COLOR };
+Estado estado = NORMAL;
+
+const float DIST_FRENTE_STOP = 10.0;
+const float DIST_FRENTE_OK   = 15.0;
+const float DIST_FRENTE_MANIOBRA = 3.0;
+
+unsigned long rojoFreq = 0;
+unsigned long verdeFreq = 0;
+int umbralRojo = 100;
+int umbralVerde = 200;
+
+const float Kp = 2.0;
+void setup() {
+  Serial.begin(9600);
+
+  // Pines sensor de color
+  pinMode(S0, OUTPUT); pinMode(S1, OUTPUT);
+  pinMode(S2, OUTPUT); pinMode(S3, OUTPUT);
+  pinMode(sensorOut, INPUT);
+  digitalWrite(S0, HIGH);
+  digitalWrite(S1, LOW);
+
+  // Pines sensores ultrasónicos
+  pinMode(trigDer, OUTPUT);   pinMode(echoDer, INPUT);
+  pinMode(trigIzq, OUTPUT);   pinMode(echoIzq, INPUT);
+  pinMode(trigFront, OUTPUT); pinMode(echoFront, INPUT);
+
+  // Pines motor
+  pinMode(motorIn1, OUTPUT);
+  pinMode(motorIn2, OUTPUT);
+  pinMode(enableMotor, OUTPUT);
+
+  // Servo
+  myServo.attach(servoPin);
+  myServo.write(ANG_CENTRO);
+
+  // Motor adelante
+  digitalWrite(motorIn1, HIGH);
+  digitalWrite(motorIn2, LOW);
+  analogWrite(enableMotor, 255);
+}
+
+void loop() {
+ 
+  float dDer = leerDist(trigDer, echoDer);
+  float dIzq = leerDist(trigIzq, echoIzq);
+  float dFront = leerDist(trigFront, echoFront);
+
+  digitalWrite(S2, LOW); digitalWrite(S3, LOW);
+  rojoFreq = pulseIn(sensorOut, LOW);
+
+  digitalWrite(S2, HIGH); digitalWrite(S3, HIGH);
+  verdeFreq = pulseIn(sensorOut, LOW);
+
+  bool colorRojo = (rojoFreq < umbralRojo && rojoFreq < verdeFreq * 0.8);
+  bool colorVerde = (verdeFreq < umbralVerde && verdeFreq < rojoFreq * 0.8);
+  bool colorDetectado = colorRojo || colorVerde;
+
+  switch (estado) {
+    case NORMAL: {
+      float error = dDer - dIzq;
+      float anguloDeseado = ANG_CENTRO + Kp * error;
+      anguloDeseado = constrain(anguloDeseado, ANG_DER, ANG_IZQ);
+      angulo = angulo + 0.3 * (anguloDeseado - angulo);
+      myServo.write((int)angulo);
+
+      if (dFront <= DIST_FRENTE_MANIOBRA) {
+        if (colorDetectado) {
+          Serial.println("Color detectado a 3cm → MANIOBRA");
+          analogWrite(enableMotor, 150);  // baja velocidad suave
+          estado = MANIOBRA_COLOR;
+        } else {
+          Serial.println("Objeto a 3cm pero sin color → Detenido");
+          detenerMotor();
+        }
+      }
+      else if (dFront <= DIST_FRENTE_STOP) {
+        Serial.println("Objeto cerca → velocidad reducida");
+        analogWrite(enableMotor, 100);
+      }
+      else {
+        analogWrite(enableMotor, 255);
+      }
+
+     
+      if (dFront < 4.0) {
+        detenerMotor();
+        delay(700);
+        anguloObjetivo = (dDer > dIzq) ? ANG_IZQ : ANG_DER;
+        myServo.write(anguloObjetivo);
+        analogWrite(enableMotor, 255);
+        estado = EVADIENDO;
+      }
+      break;
+    }
+
+    case EVADIENDO: {
+      myServo.write(anguloObjetivo);
+      analogWrite(enableMotor, 255);
+      if (dFront > DIST_FRENTE_OK) {
+        detenerMotor();
+        delay(300);
+        myServo.write(ANG_CENTRO);
+        analogWrite(enableMotor, 255);
+        estado = NORMAL;
+      }
+      break;
+    }
+
+    case MANIOBRA_COLOR: {
+      Serial.println("Ejecutando maniobra por color");
+
+      // 1. Retroceder
+      retrocederMotor(200);
+      delay(1000);
+
+      avanzarMotor(180);
+      delay(300);
+
+      int anguloColor = colorRojo ? ANG_IZQ : ANG_DER;
+      myServo.write(anguloColor);
+      delay(300);
+
+      avanzarMotor(200);
+      delay(1200);
+
+      
+      retrocederMotor(200);
+      delay(1200);
+
+      int anguloOpuesto = colorRojo ? ANG_DER : ANG_IZQ;
+      myServo.write(anguloOpuesto);
+      delay(300);
+
+      avanzarMotor(200);
+      delay(1200);
+
+      myServo.write(ANG_CENTRO);
+      delay(300);
+
+    
+      avanzarMotor(200);
+      delay(1000);
+      retrocederMotor(200);
+      delay(1200);
+
+      estado = NORMAL;
+      break;
+    }
+  }
+
+  Serial.print("Estado: ");
+  Serial.print(estado);
+  Serial.print(" | Front: "); Serial.print(dFront);
+  Serial.print(" | Rojo: ");  Serial.print(rojoFreq);
+  Serial.print(" | Verde: "); Serial.print(verdeFreq);
+  Serial.print(" | Servo: "); Serial.println(angulo);
+
+  delay(50);
+}
+
+float leerDist(int trig, int echo) {
+  digitalWrite(trig, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trig, LOW);
+
+  unsigned long dur = pulseIn(echo, HIGH, 20000);
+  float d = dur * 0.034f / 2.0f;
+  if (d <= 0 || d > 400) return 400.0f;
+  return d;
+}
+
+void avanzarMotor(int velocidad) {
+  digitalWrite(motorIn1, HIGH);
+  digitalWrite(motorIn2, LOW);
+  analogWrite(enableMotor, velocidad);
+}
+
+void retrocederMotor(int velocidad) {
+  digitalWrite(motorIn1, LOW);
+  digitalWrite(motorIn2, HIGH);
+  analogWrite(enableMotor, velocidad);
+}
+
+void detenerMotor() {
+  digitalWrite(motorIn1, LOW);
+  digitalWrite(motorIn2, LOW);
+  analogWrite(enableMotor, 0);
+}
